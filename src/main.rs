@@ -9,8 +9,10 @@ extern crate sdl2;
 //use std::time::Duration;
 use chip8::emulator::Processor; 
 //use chip8::display::Display;
+use std::env;
 
 fn main() {
+    env::set_var("RUST_BACKTRACE", "full");
     // Setup a render system
 
     // Setup emulator

@@ -124,9 +124,19 @@ impl Processor {
             .try_into()
             .unwrap();
         let nnn = opcode & 0x0FFF;
-        
+        println!("Value of nn: {}", nn);
+
         match opcode & 0xF000{
             0x8000 => match n {
+                0x0000 => self.set_vx_to_vy(x, y),
+                0x0001 => self.binary_or(x, y),
+                0x0002 => self.binary_and(x, y),
+                0x0003 => self.logical_xor(x, y),
+                0x0004 => self.add_vy_to_vx(x, y),
+                0x0005 => self.subtract_vx_vy(x, y),
+                0x0007 => self.subtract_vy_vx(y, x),
+                0x0006 => self.shift_vx_right(x, y),
+                0x000E => self.shift_vx_left(x, y),
                 _ => (),
             }
             0x0000 => match n {
@@ -249,11 +259,21 @@ impl Processor {
     }
 
     fn set_vx_to_nn(&mut self, x: u8, nn: u8) {
-        self.register[as_index(x)] = nn;
+        self.set_reg(x, nn);
     }
 
     fn add_to_vx(&mut self, x: u8, nn: u8) {
-        self.register[as_index(x)] += nn;
+        println!("Adding {} to {} from vx", nn, self.register(x));
+        let vx = self.register(x);
+        let result = vx.checked_add(nn);
+        
+        match result {
+            Some(sum) => {
+                self.set_reg(x, sum);
+            },
+
+            None => (),
+        }
     }
 
     fn set_index(&mut self, nnn: u16) {
@@ -283,6 +303,10 @@ impl Processor {
 
     fn set_reg(&mut self, i: u8, v: u8) {
         self.register[as_index(i)] = v; 
+    }
+
+    fn add_reg(&mut self, i: u8, v: u8) {
+        self.register[as_index(i)] += v;
     }
 
     fn register(&self,i: u8) -> u8 {
