@@ -1,2 +1,4 @@
-pub mod chip8;
-pub mod useful;
+pub mod emulator;
+pub mod helpers;
+pub mod processor;
+pub mod instruction;
