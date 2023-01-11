@@ -1,10 +1,8 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 use std::fs;
 use std::error::Error;
 //use std::{thread, time};
 use crate::helpers::as_index;
+use crate::assembler::Assembler;
 
 const FONT_SPRITES: [u8; 80]  = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, //0 
@@ -30,28 +28,26 @@ const MEM_SIZE:usize = 4096;
 const REG_SIZE:usize = 16;
 const START_INDEX:u16 = 0x200;
 
-pub struct Processor {
+pub struct Emulator {
     stack: Vec<u16>,
     memory: [u8; MEM_SIZE],
     register: [u8; REG_SIZE],
     screen: [bool; SCREEN_SIZE],
     pc: u16, 
-    sp: u16,
     index: u16, 
     dtimer: u8,
     stimer: u8,
     draw: bool,
 }
 
-impl Processor {
-    pub fn init() -> Self {
+impl Emulator {
+    pub fn new() -> Self {
         let mut emu = Self {
             memory: [0; MEM_SIZE] ,
             screen: [false; SCREEN_SIZE],
             register: [0; REG_SIZE],
             index: 0,
             pc: START_INDEX,
-            sp: 0,
             stack: Vec::new(),
             dtimer: 0,
             stimer: 0,
@@ -82,7 +78,8 @@ impl Processor {
         self.pc = START_INDEX;
         self.stack = Vec::new();
         self.dtimer = 0;
-        self.stimer = 0; 
+        self.stimer = 0;
+        self.draw = false;
     }
 
     fn readf(filepath: &str) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -90,13 +87,16 @@ impl Processor {
         Ok(file)
     }
 
-    pub fn load_rom(&mut self, filepath: &str) {
-        let buffer = Processor::readf(filepath).unwrap();
+    pub fn load_rom(&mut self, fpath: &str) {
+        let buf = Self::readf(fpath).unwrap();
 
-        // load the contents of the rom file into memory starting from 0x200
-        for i in 0..buffer.len() {
-            self.memory[as_index(START_INDEX) + i] = buffer[i];
+        for i in 0..buf.len() {
+            self.memory[as_index(START_INDEX) + i] = buf[i];
         }
+    }
+
+    pub fn fetch_next_opcode(&mut self) {
+        self.pc += 2;
     }
 
     pub fn exec_cycle(&mut self) {
@@ -105,26 +105,17 @@ impl Processor {
         let second_instr: u16 = self.memory(self.pc).try_into().unwrap(); 
 
         // Merge them both into one 16 bit instruction
-        let opcode: u16 = Processor::into_opcode(first_instr, second_instr);
+        let opcode: u16 = Emulator::into_opcode(first_instr, second_instr);
         
         // Get ready to fetch next instruction
         self.pc += 2;
 
         // decode and execute
-        let x: u8 = ((opcode &  0x0F00) >> 8)
-            .try_into()
-            .unwrap(); 
-        let y: u8 = ((opcode & 0x00F0) >> 4)
-            .try_into()
-            .unwrap();
-        let n:u8 = (opcode & 0x000F)
-            .try_into()
-            .unwrap();
-        let nn:u8 = (opcode & 0x00FF)
-            .try_into()
-            .unwrap();
-        let nnn = opcode & 0x0FFF;
-        println!("Value of nn: {}", nn);
+        let x: u8 = ((opcode &  0x0F00) >> 8).try_into().unwrap(); 
+        let y: u8 = ((opcode & 0x00F0) >> 4).try_into().unwrap();
+        let n:u8 = (opcode & 0x000F).try_into().unwrap();
+        let nn:u8 = (opcode & 0x00FF).try_into().unwrap();
+        let nnn: u16 = opcode & 0x0FFF;
 
         match opcode & 0xF000{
             0x8000 => match n {
@@ -149,7 +140,7 @@ impl Processor {
             0x2000 => self.call_subroutine(nnn),
             0x6000 => self.set_vx_to_nn(x, nn),
             0x7000 => self.add_to_vx(x, nn),
-            0xD000 => self.op_dxyn(x,y),
+            0xD000 => self.update_pixels(x,y),
             _ => (),
         } 
 
@@ -163,16 +154,23 @@ impl Processor {
         }
     }
 
+    pub fn load_into_memory(&mut self, buf: &mut Vec<u8>) {
+        for i in 0..buf.len() {
+            self.memory[512 + i] = buf[i];
+        }
+    }
+
     pub fn update_screen(&self) {
 
     }
 }
 
 // All the chip8 instructions
-impl Processor {
+impl Emulator {
 
-    fn shift_vx_left(&mut self, x: u8, y: u8) {
+    pub fn shift_vx_left(&mut self, x: u8, y: u8) {
         let lost_bit = self.register(x) & 1;
+        println!("lost bit: {}", lost_bit);
 
         self.set_reg(x, self.register(y));
         self.set_reg(x, self.register(x) << 1);
@@ -180,7 +178,7 @@ impl Processor {
 
     }
 
-    fn shift_vx_right(&mut self, x: u8, y: u8) {
+    pub fn shift_vx_right(&mut self, x: u8, y: u8) {
         let lost_bit = self.register(x) & 1;
 
         self.set_reg(x, self.register(y));
@@ -188,7 +186,7 @@ impl Processor {
         self.set_vf(lost_bit);
     }
 
-    fn subtract_vy_vx(&mut self, y: u8, x: u8) {
+    pub fn subtract_vy_vx(&mut self, y: u8, x: u8) {
         let vx = self.register(x);
         let vy = self.register(y);
 
@@ -201,7 +199,7 @@ impl Processor {
         }
     }
 
-    fn subtract_vx_vy(&mut self, x: u8, y: u8) {
+    pub fn subtract_vx_vy(&mut self, x: u8, y: u8) {
         let vx = self.register(x);
         let vy = self.register(y);
 
@@ -214,7 +212,7 @@ impl Processor {
         }
     }
 
-    fn add_vy_to_vx(&mut self, x: u8, y: u8) {
+    pub fn add_vy_to_vx(&mut self, x: u8, y: u8) {
         let vx = self.register(x);
         let vy = self.register(y);
 
@@ -229,44 +227,44 @@ impl Processor {
         }
     }
 
-    fn set_vx_to_vy(&mut self, x: u8, y: u8) {
+    pub fn set_vx_to_vy(&mut self, x: u8, y: u8) {
         self.set_reg(x, self.register(y));
     }
 
-    fn binary_or(&mut self, x: u8, y: u8) {
+    pub fn binary_or(&mut self, x: u8, y: u8) {
         let vx = self.register(x);
         let vy = self.register(y);
         self.set_reg(x, vx | vy);
     }
 
-    fn binary_and(&mut self, x:u8, y: u8) {
+    pub fn binary_and(&mut self, x:u8, y: u8) {
         let vx = self.register(x);
         let vy = self.register(y);
         self.set_reg(x, vx & vy)
     }
 
-    fn logical_xor(&mut self, x: u8, y: u8) {
-        let mut vx = self.register[as_index(x)];
-        let vy = self.register[as_index(y)];
-        vx ^= vy;
+    pub fn logical_xor(&mut self, x: u8, y: u8) {
+        let vx = self.register(x);
+        let vy = self.register(y);
+        self.set_reg(x, vx ^ vy);
     }
 
-    fn clear_screen(&mut self) {
+    pub fn clear_screen(&mut self) {
     }
 
-    fn jump_to(&mut self, nnn: u16) {
+    pub fn jump_to(&mut self, nnn: u16) {
         self.pc = nnn;
     }
 
-    fn set_vx_to_nn(&mut self, x: u8, nn: u8) {
+    pub fn set_vx_to_nn(&mut self, x: u8, nn: u8) {
         self.set_reg(x, nn);
     }
 
-    fn add_to_vx(&mut self, x: u8, nn: u8) {
-        println!("Adding {} to {} from vx", nn, self.register(x));
+    pub fn add_to_vx(&mut self, x: u8, nn: u8) {
         let vx = self.register(x);
         let result = vx.checked_add(nn);
-        
+       
+        // Don't add nn to vx if it causes the register to overflow
         match result {
             Some(sum) => {
                 self.set_reg(x, sum);
@@ -276,51 +274,73 @@ impl Processor {
         }
     }
 
-    fn set_index(&mut self, nnn: u16) {
+    pub fn set_index(&mut self, nnn: u16) {
         self.index = nnn;
     }
 
-    fn op_dxyn(&mut self, x: u8, y: u8) {
-       let vx = self.register[usize::from(x)];
-       let xy = self.register[usize::from(y)];
+    pub fn update_pixels(&mut self, x: u8, y: u8) {
+       let vx = self.register(x);
+       let vy = self.register(y);
+       let x = vx % 64;
+       let y = vy % 32;
+       
+       self.set_vf(0);
+
+       for i in 0..self.screen.len() {
+           // Get the Nth byte of sprite data
+           println!("{}", self.screen(i));
+       }
+
     }
 
-    fn subroutine_return(&mut self) {
+    pub fn subroutine_return(&mut self) {
         self.pc = self.stack.pop().unwrap();
     }
 
-    fn call_subroutine(&mut self, nnn: u16) {
+    pub fn call_subroutine(&mut self, nnn: u16) {
         self.stack.push(self.pc);
         self.pc = nnn;
     }
 }
 
 // Setters and getters
-impl Processor {
-    fn set_vf(&mut self, v: u8) {
+impl Emulator {
+    pub fn set_vf(&mut self, v: u8) {
         self.register[0xF] = v;
     }
 
-    fn set_reg(&mut self, i: u8, v: u8) {
+    pub fn set_reg(&mut self, i: u8, v: u8) {
         self.register[as_index(i)] = v; 
     }
 
-    fn add_reg(&mut self, i: u8, v: u8) {
+    pub fn add_reg(&mut self, i: u8, v: u8) {
         self.register[as_index(i)] += v;
     }
 
-    fn register(&self,i: u8) -> u8 {
+    pub fn register(&self,i: u8) -> u8 {
         self.register[as_index(i)]
     }
 
-    fn memory(&self, i: u16) -> u8 {
+    pub fn memory(&self, i: u16) -> u8 {
         self.memory[as_index(i)]
+    }
+
+    pub fn screen(&self, i: usize) -> bool {
+        self.screen[i]
+    }
+
+    pub fn memory_add(&mut self, i: u8, v: u8) {
+        self.memory[as_index(i)] = v;
+    }
+
+    pub fn pc(&self) -> u16 {
+        self.pc
     }
 
 }
 
 // Bit manipulation methods
-impl Processor {
+impl Emulator {
     fn into_opcode(mut a: u16, b: u16) -> u16 {
         a <<= 8;
         a |= b;
