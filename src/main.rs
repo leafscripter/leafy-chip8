@@ -7,7 +7,7 @@ use sdl2::event::Event;
 use sdl2::surface::Surface;
 use chip8::emulator::Emulator; 
 use chip8::assembler::Assembler;
-use chip8::assembler::DecodedInstruction;
+use chip8::assembler::Instruction;
 use std::fs;
 
 fn main() {
@@ -24,9 +24,9 @@ fn main() {
     // Setup emulator
     let mut emu = Emulator::new();
     let mut assembler = Assembler::new();
-    let mut decoded_instruction: DecodedInstruction;
+    let mut instruction: Instruction;
+    
     emu.load_rom("/home/kaysar/Documents/ibm_logo.ch8");
-    //load_rom(&mut emu, "/home/kaysar/Documents/ibm_logo.ch8");
 
     'running:loop {
         // Handle window events
@@ -40,8 +40,8 @@ fn main() {
         }
         // Emulate a Chip8 cycle
         assembler.fetch_opcode(&emu);
-        decoded_instruction = assembler.decode(&mut emu);
-        assembler.execute(&decoded_instruction, &mut emu);
+        instruction = assembler.decode(&mut emu);
+        assembler.execute(&mut emu, &instruction);
 
         if emu.draw() == true {
             // Update screen

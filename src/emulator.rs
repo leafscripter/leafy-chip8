@@ -1,8 +1,6 @@
 use std::fs;
 use std::error::Error;
-//use std::{thread, time};
 use crate::helpers::as_index;
-use crate::assembler::Assembler;
 
 const FONT_SPRITES: [u8; 80]  = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, //0 
@@ -61,7 +59,9 @@ impl Emulator {
 
         emu
     }
+}
 
+impl Emulator {
     pub fn draw(&self) -> bool {
         self.draw
     }
@@ -82,13 +82,9 @@ impl Emulator {
         self.draw = false;
     }
 
-    fn readf(filepath: &str) -> Result<Vec<u8>, Box<dyn Error>> {
-        let file = fs::read(filepath)?; 
-        Ok(file)
-    }
-
+    // Loads ch8 file from path and loads it into memory starting from index 512 
     pub fn load_rom(&mut self, fpath: &str) {
-        let buf = Self::readf(fpath).unwrap();
+        let buf = fs::read(fpath).expect("ROM could not be found");
 
         for i in 0..buf.len() {
             self.memory[as_index(START_INDEX) + i] = buf[i];
@@ -97,71 +93,6 @@ impl Emulator {
 
     pub fn fetch_next_opcode(&mut self) {
         self.pc += 2;
-    }
-
-    pub fn exec_cycle(&mut self) {
-        // fetch two instructions
-        let first_instr: u16 = self.memory(self.pc).try_into().unwrap();  
-        let second_instr: u16 = self.memory(self.pc).try_into().unwrap(); 
-
-        // Merge them both into one 16 bit instruction
-        let opcode: u16 = Emulator::into_opcode(first_instr, second_instr);
-        
-        // Get ready to fetch next instruction
-        self.pc += 2;
-
-        // decode and execute
-        let x: u8 = ((opcode &  0x0F00) >> 8).try_into().unwrap(); 
-        let y: u8 = ((opcode & 0x00F0) >> 4).try_into().unwrap();
-        let n:u8 = (opcode & 0x000F).try_into().unwrap();
-        let nn:u8 = (opcode & 0x00FF).try_into().unwrap();
-        let nnn: u16 = opcode & 0x0FFF;
-
-        match opcode & 0xF000{
-            0x8000 => match n {
-                0x0000 => self.set_vx_to_vy(x, y),
-                0x0001 => self.binary_or(x, y),
-                0x0002 => self.binary_and(x, y),
-                0x0003 => self.logical_xor(x, y),
-                0x0004 => self.add_vy_to_vx(x, y),
-                0x0005 => self.subtract_vx_vy(x, y),
-                0x0007 => self.subtract_vy_vx(y, x),
-                0x0006 => self.shift_vx_right(x, y),
-                0x000E => self.shift_vx_left(x, y),
-                _ => (),
-            }
-            0x0000 => match n {
-                0x0000 => self.clear_screen(),
-                0x00EE => self.subroutine_return(),
-                _ => (),
-            }
-            0xA000 => self.set_index(nnn),
-            0x1000 => self.jump_to(nnn),
-            0x2000 => self.call_subroutine(nnn),
-            0x6000 => self.set_vx_to_nn(x, nn),
-            0x7000 => self.add_to_vx(x, nn),
-            0xD000 => self.update_pixels(x,y),
-            _ => (),
-        } 
-
-        // set timers
-        if self.stimer > 0 {
-            self.stimer -= 1; 
-        }
-        
-        if self.dtimer > 0 {
-            self.dtimer -= 1;
-        }
-    }
-
-    pub fn load_into_memory(&mut self, buf: &mut Vec<u8>) {
-        for i in 0..buf.len() {
-            self.memory[512 + i] = buf[i];
-        }
-    }
-
-    pub fn update_screen(&self) {
-
     }
 }
 
@@ -339,11 +270,3 @@ impl Emulator {
 
 }
 
-// Bit manipulation methods
-impl Emulator {
-    fn into_opcode(mut a: u16, b: u16) -> u16 {
-        a <<= 8;
-        a |= b;
-        a.into()
-    }
-}
