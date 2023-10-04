@@ -1,4 +1,4 @@
 pub mod emulator;
 pub mod helpers;
-pub mod assembler;
+pub mod disassembler;
 pub mod instructions;
